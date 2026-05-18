@@ -13,7 +13,7 @@ app.get('/', (req, res) => {
 });
 
 const server = app.listen(port, () => {
-    console.log(Servidor corriendo en el puerto ${port});
+    console.log('Servidor corriendo en el puerto ' + port);
 });
 
 const wss = new WebSocket.Server({ server });
@@ -36,12 +36,12 @@ wss.on('connection', (ws) => {
     try {
         zelloToken = jwt.sign(payload, PRIVATE_KEY, { algorithm: 'RS256' });
     } catch (err) {
-        console.error('Error al firmar el token con la Private Key:', err.message);
+        console.error('Error al firmar el token con la Private Key: ' + err.message);
         ws.close();
         return;
     }
 
-    const zelloWs = new WebSocket(wss://zello.page/api/v1/stream?token=${zelloToken});
+    const zelloWs = new WebSocket('wss://zello.page/api/v1/stream?token=' + zelloToken);
 
     zelloWs.on('open', () => {
         console.log('Conexión exitosa con la API de Zello');
