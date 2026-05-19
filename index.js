@@ -26,7 +26,10 @@ wss.on('connection', (ws) => {
     let zelloToken;
 
     try {
-        const privateKey = process.env.PRIVATE_KEY ? process.env.PRIVATE_KEY.replace(/\\n/g, '\n') : '';
+        // El puente toma el texto de Render y reconstruye la llave original con sus saltos de línea exactos
+        const base64Key = process.env.PRIVATE_KEY || '';
+        const privateKey = Buffer.from(base64Key, 'base64').toString('utf8');
+        
         zelloToken = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
     } catch (err) {
         console.error('Error al firmar el token con la Private Key: ' + err.message);
