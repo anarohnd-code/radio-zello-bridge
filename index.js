@@ -18,8 +18,10 @@ const wss = new WebSocket.Server({ server });
 wss.on('connection', (ws) => {
     console.log('Cliente de Blogger conectado al puente');
 
+    const issuerId = process.env.ZELLO_ISSUER || 'cedec_radio';
+
     const payload = {
-        iss: 'cedec_radio',
+        iss: issuerId,
         exp: Math.floor(Date.now() / 1000) + (60 * 60)
     };
 
