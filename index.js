@@ -1,66 +1,44 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const WebSocket = require('ws');
 
 const app = express();
 const port = process.env.PORT || 10000;
 
+// Permisos (CORS) para que Blogger pueda pedir la llave sin ser bloqueado
+app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    next();
+});
+
+// Pantalla de inicio para verificar que el servidor está vivo
 app.get('/', (req, res) => {
-    res.send('Puente Zello Activo');
+    res.send('Fábrica de Llaves de CEDEC RADIO Activa 🚀');
 });
 
-const server = app.listen(port, () => {
-    console.log('Servidor corriendo en el puerto ' + port);
-});
-
-const wss = new WebSocket.Server({ server });
-
-wss.on('connection', (ws) => {
-    console.log('Cliente de Blogger conectado al puente');
-
+// La nueva ruta a la que Blogger llamará para obtener el pase de entrada
+app.get('/get-token', (req, res) => {
     const issuerId = process.env.ZELLO_ISSUER;
     const payload = {
         iss: issuerId,
-        exp: Math.floor(Date.now() / 1000) + (60 * 60),
-        sd: "listen"
+        exp: Math.floor(Date.now() / 1000) + (60 * 60) // El pase dura 1 hora
     };
-
-    let zelloToken;
 
     try {
         const base64Key = process.env.ZELLO_PRIVATE_KEY || '';
         const privateKey = Buffer.from(base64Key, 'base64').toString('utf8');
-        zelloToken = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
+        
+        const token = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
+        
+        // Empaquetamos la llave y se la mandamos a Blogger
+        res.json({ success: true, token: token });
+        console.log('Se generó y envió un nuevo token a Blogger');
     } catch (err) {
-        console.error('Error al firmar el token con la Private Key: ' + err.message);
-        ws.close();
-        return;
+        console.error('Error al firmar la llave:', err.message);
+        res.status(500).json({ success: false, error: 'Error interno en la fábrica' });
     }
+});
 
-    const zelloWs = new WebSocket('wss://zello.me/api/v1/stream?token=' + zelloToken);
-
-    zelloWs.on('open', () => {
-        console.log('Conexión exitosa con la API de Zello');
-    });
-
-    zelloWs.on('error', (error) => {
-        console.error('Error en la conexión con Zello: ' + error.message);
-    });
-
-    zelloWs.on('message', (data) => {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(data);
-        }
-    });
-
-    ws.on('message', (message) => {
-        if (zelloWs.readyState === WebSocket.OPEN) {
-            zelloWs.send(message);
-        }
-    });
-
-    ws.on('close', () => {
-        console.log('Cliente de Blogger desconectado');
-        zelloWs.close();
-    });
+const server = app.listen(port, () => {
+    console.log('Fábrica de llaves corriendo en el puerto ' + port);
 });
