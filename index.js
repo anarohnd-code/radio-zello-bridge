@@ -19,7 +19,6 @@ wss.on('connection', (ws) => {
     console.log('Cliente de Blogger conectado al puente');
 
     const issuerId = process.env.ZELLO_ISSUER || 'cedec_radio';
-
     const payload = {
         iss: issuerId,
         exp: Math.floor(Date.now() / 1000) + (60 * 60)
@@ -30,10 +29,9 @@ wss.on('connection', (ws) => {
     try {
         const base64Key = process.env.ZELLO_PRIVATE_KEY || '';
         const privateKey = Buffer.from(base64Key, 'base64').toString('utf8');
-        
         zelloToken = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
     } catch (err) {
-        console.error('Error al firmar el token con la Private Key: ' + err.message);
+        console.error('Error al firmar el token: ' + err.message);
         ws.close();
         return;
     }
@@ -45,12 +43,20 @@ wss.on('connection', (ws) => {
     });
 
     zelloWs.on('error', (error) => {
-        console.error('Error en la conexión con Zello: ' + error.message);
+        console.error('Error en Zello: ' + error.message);
     });
 
     zelloWs.on('message', (data) => {
         if (ws.readyState === WebSocket.OPEN) {
-            ws.send(data);
+            if (data instanceof ArrayBuffer || Buffer.isBuffer(data)) {
+                const buffer = Buffer.from(data);
+                if (buffer.length > 0 && buffer[0] === 0x01) {
+                    const audioRaw = buffer.slice(9);
+                    ws.send(audioRaw);
+                } else {
+                    ws.send(data);
+                }
+            }
         }
     });
 
