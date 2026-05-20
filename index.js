@@ -43,10 +43,14 @@ wss.on('connection', (ws) => {
         return;
     }
 
-    const zelloWs = new WebSocket('wss://zello.page/api/v1/stream?token=' + zelloToken);
+    const zelloWs = new WebSocket('wss://api.zello.com/v1/stream?token=' + zelloToken);
 
     zelloWs.on('open', () => {
         console.log('Conexión exitosa con la API de Zello');
+    });
+
+    zelloWs.on('error', (error) => {
+        console.error('Error en la conexión con Zello: ' + error.message);
     });
 
     ws.on('message', (message) => {
