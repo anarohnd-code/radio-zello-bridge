@@ -18,10 +18,11 @@ const wss = new WebSocket.Server({ server });
 wss.on('connection', (ws) => {
     console.log('Cliente de Blogger conectado al puente');
 
-    const issuerId = process.env.ZELLO_ISSUER || 'cedec_radio';
+    const issuerId = process.env.ZELLO_ISSUER;
     const payload = {
         iss: issuerId,
-        exp: Math.floor(Date.now() / 1000) + (60 * 60)
+        exp: Math.floor(Date.now() / 1000) + (60 * 60),
+        sd: "listen"
     };
 
     let zelloToken;
@@ -36,7 +37,7 @@ wss.on('connection', (ws) => {
         return;
     }
 
-    const zelloWs = new WebSocket('wss://zello.com/api/v1/stream?token=' + zelloToken);
+    const zelloWs = new WebSocket('wss://zello.me/api/v1/stream?token=' + zelloToken);
 
     zelloWs.on('open', () => {
         console.log('Conexión exitosa con la API de Zello');
