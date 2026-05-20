@@ -31,11 +31,6 @@ wss.on('connection', (ws) => {
         const base64Key = process.env.ZELLO_PRIVATE_KEY || '';
         const privateKey = Buffer.from(base64Key, 'base64').toString('utf8');
         
-        console.log('--- REPORTE DE EMERGENCIA ---');
-        console.log('Inicio detectado: ' + privateKey.substring(0, 30));
-        console.log('Fin detectado: ' + privateKey.substring(privateKey.length - 30));
-        console.log('------------------------------');
-
         zelloToken = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
     } catch (err) {
         console.error('Error al firmar el token con la Private Key: ' + err.message);
@@ -51,6 +46,12 @@ wss.on('connection', (ws) => {
 
     zelloWs.on('error', (error) => {
         console.error('Error en la conexión con Zello: ' + error.message);
+    });
+
+    zelloWs.on('message', (data) => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(data);
+        }
     });
 
     ws.on('message', (message) => {
