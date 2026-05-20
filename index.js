@@ -31,32 +31,24 @@ wss.on('connection', (ws) => {
         const privateKey = Buffer.from(base64Key, 'base64').toString('utf8');
         zelloToken = jwt.sign(payload, privateKey, { algorithm: 'RS256' });
     } catch (err) {
-        console.error('Error al firmar el token: ' + err.message);
+        console.error('Error al firmar el token con la Private Key: ' + err.message);
         ws.close();
         return;
     }
 
-    const zelloWs = new WebSocket('wss://api.zello.com/v1/stream?token=' + zelloToken);
+    const zelloWs = new WebSocket('wss://zello.com/api/v1/stream?token=' + zelloToken);
 
     zelloWs.on('open', () => {
         console.log('Conexión exitosa con la API de Zello');
     });
 
     zelloWs.on('error', (error) => {
-        console.error('Error en Zello: ' + error.message);
+        console.error('Error en la conexión con Zello: ' + error.message);
     });
 
     zelloWs.on('message', (data) => {
         if (ws.readyState === WebSocket.OPEN) {
-            if (data instanceof ArrayBuffer || Buffer.isBuffer(data)) {
-                const buffer = Buffer.from(data);
-                if (buffer.length > 0 && buffer[0] === 0x01) {
-                    const audioRaw = buffer.slice(9);
-                    ws.send(audioRaw);
-                } else {
-                    ws.send(data);
-                }
-            }
+            ws.send(data);
         }
     });
 
