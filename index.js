@@ -18,7 +18,7 @@ app.get('/', (req, res) => {
 
 // La nueva ruta a la que Blogger llamará para obtener el pase de entrada
 app.get('/get-token', (req, res) => {
-    const issuerId = process.env.ZELLO_ISSUER;
+    const issuerId = process.env.ZELLO_ISSUER || WkM6Q2VkZWMgTWluaXN0ZXJpb3M6Mw.EBj_4Vx8hEvFTSiCpGsFYQ0QL0erSuAotrZ1Psjz2_Q;
     const payload = {
         iss: issuerId,
         exp: Math.floor(Date.now() / 1000) + (60 * 60) // El pase dura 1 hora
