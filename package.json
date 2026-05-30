@@ -1,15 +1,17 @@
 {
-  "name": "radio-zello-bridge",
+  "name": "zello-bridge-server",
   "version": "1.0.0",
-  "description": "Servidor Puente Pro para CEDEC Radio",
-  "main": "index.js",
-  "license": "MIT",
+  "description": "Servidor puente para Cedec Ministerios",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2",
-    "ws": "^8.17.0"
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "ws": "^8.16.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }
