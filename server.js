@@ -1,5 +1,5 @@
-const express = require("express");
-const cors    = require("cors");
+const express   = require("express");
+const cors      = require("cors");
 const WebSocket = require("ws");
 
 const app = express();
@@ -12,18 +12,33 @@ const PASSWORD   = process.env.ZELLO_PASSWORD;
 const CHANNEL    = process.env.ZELLO_CHANNEL || "Cedec Ministerios";
 const PORT       = process.env.PORT || 3000;
 
+// ── Estado global ─────────────────────────────────────────────────────────────
 let connectedUsers = [];
 let messageHistory = [];
 let zelloWs        = null;
-let clients        = new Set();
+let sseClients     = new Set();  // clientes de eventos
+let wsClients      = new Set();  // clientes de audio WebSocket
 
+// ── Broadcast SSE ─────────────────────────────────────────────────────────────
 function broadcast(data) {
   const payload = "data: " + JSON.stringify(data) + "\n\n";
-  for (const res of clients) {
+  for (const res of sseClients) {
     try { res.write(payload); } catch (_) {}
   }
 }
 
+// ── Broadcast audio binario a todos los clientes WS ──────────────────────────
+function broadcastAudio(buffer) {
+  for (const ws of wsClients) {
+    try {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(buffer);
+      }
+    } catch (_) {}
+  }
+}
+
+// ── Conexión a Zello ──────────────────────────────────────────────────────────
 function connectToZello() {
   console.log("Conectando a Zello...");
   zelloWs = new WebSocket("wss://zello.io/ws");
@@ -40,7 +55,20 @@ function connectToZello() {
     }));
   });
 
-  zelloWs.on("message", (raw) => {
+  // ── Mensajes de texto (JSON) ──────────────────────────────────────────────
+  zelloWs.on("message", (raw, isBinary) => {
+
+    // Paquete de AUDIO — binario
+    if (isBinary || Buffer.isBuffer(raw)) {
+      // Los primeros 9 bytes son cabecera de Zello — el resto es Opus puro
+      const audioData = raw.slice(9);
+      if (audioData.length > 0) {
+        broadcastAudio(audioData);
+      }
+      return;
+    }
+
+    // Mensaje de control — JSON
     let msg;
     try { msg = JSON.parse(raw); } catch (_) { return; }
     console.log("Zello →", msg);
@@ -54,9 +82,11 @@ function connectToZello() {
     }
     if (msg.command === "on_stream_start") {
       broadcast({ type: "talking", user: msg.from, active: true });
+      console.log("🎙️ Transmitiendo:", msg.from);
     }
     if (msg.command === "on_stream_stop") {
       broadcast({ type: "talking", user: msg.from, active: false });
+      console.log("⏹️ Paró:", msg.from);
     }
     if (msg.command === "on_text_message") {
       const entry = { user: msg.from, text: msg.text, ts: Date.now() };
@@ -65,24 +95,28 @@ function connectToZello() {
       broadcast({ type: "text", ...entry });
     }
     if (msg.error) {
-      console.error("ERROR de Zello:", msg.error);
+      console.error("ERROR Zello:", msg.error);
       broadcast({ type: "error", error: msg.error });
     }
   });
 
   zelloWs.on("close", (code, reason) => {
-    console.warn(`Zello cerró conexión (${code}): ${reason}. Reconectando en 5s...`);
+    console.warn(`Zello cerró (${code}): ${reason}. Reconectando en 5s...`);
     broadcast({ type: "disconnected" });
     setTimeout(connectToZello, 5000);
   });
 
   zelloWs.on("error", (err) => {
-    console.error("Error WebSocket:", err.message);
+    console.error("Error WebSocket Zello:", err.message);
   });
 }
 
+// ── Rutas HTTP ────────────────────────────────────────────────────────────────
+
+// Health check
 app.get("/", (_, res) => res.json({ status: "ok", channel: CHANNEL }));
 
+// SSE — eventos en tiempo real
 app.get("/events", (req, res) => {
   res.setHeader("Content-Type",  "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -95,14 +129,28 @@ app.get("/events", (req, res) => {
     history: messageHistory
   }) + "\n\n");
 
-  clients.add(res);
-  req.on("close", () => clients.delete(res));
+  sseClients.add(res);
+  req.on("close", () => sseClients.delete(res));
 });
 
 app.get("/history", (_, res) => res.json(messageHistory));
 app.get("/users",   (_, res) => res.json(connectedUsers));
 
-app.listen(PORT, () => {
+// ── Servidor HTTP + WebSocket para audio ─────────────────────────────────────
+const server = require("http").createServer(app);
+
+const wss = new WebSocket.Server({ server, path: "/audio" });
+
+wss.on("connection", (ws) => {
+  console.log("🔊 Cliente de audio conectado");
+  wsClients.add(ws);
+  ws.on("close", () => {
+    wsClients.delete(ws);
+    console.log("🔇 Cliente de audio desconectado");
+  });
+});
+
+server.listen(PORT, () => {
   console.log(`Servidor escuchando en puerto ${PORT}`);
   connectToZello();
 });
