@@ -140,6 +140,13 @@ app.get("/events", (req, res) => {
 app.get("/history", (_, res) => res.json(messageHistory));
 app.get("/users",   (_, res) => res.json(connectedUsers));
 
+// Servir librería opus-to-pcm al navegador
+app.get("/opus-to-pcm.min.js", (_, res) => {
+  const path = require("path");
+  const file = path.join(__dirname, "node_modules/opus-to-pcm/dist/opus-to-pcm.min.js");
+  res.sendFile(file);
+});
+
 // ── Servidor HTTP + WebSocket para audio ─────────────────────────────────────
 const server = require("http").createServer(app);
 
