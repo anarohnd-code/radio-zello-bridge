@@ -28,14 +28,31 @@ function broadcast(data) {
   }
 }
 
-// ── Broadcast audio binario a todos los clientes WS ──────────────────────────
-function broadcastAudio(buffer) {
-  for (const ws of wsClients) {
-    try {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(buffer);
-      }
-    } catch (_) {}
+// ── Broadcast audio — decodifica Opus a PCM y envía a clientes ───────────────
+function broadcastAudio(opusBuffer) {
+  if (!opusDecoder || wsClients.size === 0) return;
+  try {
+    // Decodificar Opus → PCM Int16
+    const pcm = opusDecoder.decode(opusBuffer);
+    if (!pcm || pcm.length === 0) return;
+
+    // Convertir Int16Array a Float32Array para Web Audio API
+    const float32 = new Float32Array(pcm.length);
+    for (let i = 0; i < pcm.length; i++) {
+      float32[i] = pcm[i] / 32768.0;
+    }
+
+    // Enviar como buffer binario Float32 a todos los clientes
+    const outBuffer = Buffer.from(float32.buffer);
+    for (const ws of wsClients) {
+      try {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(outBuffer);
+        }
+      } catch (_) {}
+    }
+  } catch(e) {
+    console.error("Error decodificando Opus:", e.message);
   }
 }
 
@@ -140,18 +157,18 @@ app.get("/events", (req, res) => {
 app.get("/history", (_, res) => res.json(messageHistory));
 app.get("/users",   (_, res) => res.json(connectedUsers));
 
-// Servir librería opus-to-pcm al navegador
-const path = require("path");
-app.get("/opus-to-pcm.min.js", (_, res) => {
-  const file = path.resolve("node_modules/opus-to-pcm/dist/opus-to-pcm.min.js");
-  console.log("Sirviendo opus-to-pcm desde:", file);
-  res.sendFile(file, (err) => {
-    if (err) {
-      console.error("Error sirviendo opus-to-pcm:", err.message);
-      res.status(404).send("Librería no encontrada");
-    }
-  });
-});
+// Decodificador Opus en el servidor usando opusscript
+const OpusScript = require("opusscript");
+const SAMPLE_RATE = 16000;
+const CHANNELS    = 1;
+let opusDecoder   = null;
+
+try {
+  opusDecoder = new OpusScript(SAMPLE_RATE, CHANNELS, OpusScript.Application.VOIP);
+  console.log("✅ Decodificador Opus listo");
+} catch(e) {
+  console.error("❌ Error iniciando Opus:", e.message);
+}
 
 // ── Servidor HTTP + WebSocket para audio ─────────────────────────────────────
 const server = require("http").createServer(app);
