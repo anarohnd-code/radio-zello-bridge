@@ -141,10 +141,16 @@ app.get("/history", (_, res) => res.json(messageHistory));
 app.get("/users",   (_, res) => res.json(connectedUsers));
 
 // Servir librería opus-to-pcm al navegador
+const path = require("path");
 app.get("/opus-to-pcm.min.js", (_, res) => {
-  const path = require("path");
-  const file = path.join(__dirname, "node_modules/opus-to-pcm/dist/opus-to-pcm.min.js");
-  res.sendFile(file);
+  const file = path.resolve("node_modules/opus-to-pcm/dist/opus-to-pcm.min.js");
+  console.log("Sirviendo opus-to-pcm desde:", file);
+  res.sendFile(file, (err) => {
+    if (err) {
+      console.error("Error sirviendo opus-to-pcm:", err.message);
+      res.status(404).send("Librería no encontrada");
+    }
+  });
 });
 
 // ── Servidor HTTP + WebSocket para audio ─────────────────────────────────────
