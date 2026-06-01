@@ -32,8 +32,8 @@ function broadcast(data) {
 function broadcastAudio(opusBuffer) {
   if (!opusDecoder || wsClients.size === 0) return;
   try {
-    // Decodificar Opus → PCM Int16
-    const pcm = opusDecoder.decode(opusBuffer);
+    // Decodificar Opus → PCM Int16 con frame size correcto
+    const pcm = opusDecoder.decode(opusBuffer, FRAME_SIZE);
     if (!pcm || pcm.length === 0) return;
 
     // Convertir Int16Array a Float32Array para Web Audio API
@@ -169,6 +169,9 @@ try {
 } catch(e) {
   console.error("❌ Error iniciando Opus:", e.message);
 }
+
+// Frame size para packet_duration=120ms a 16000Hz = 1920 muestras
+const FRAME_SIZE = 1920;
 
 // ── Servidor HTTP + WebSocket para audio ─────────────────────────────────────
 const server = require("http").createServer(app);
