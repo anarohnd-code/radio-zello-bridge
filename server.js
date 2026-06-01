@@ -16,6 +16,7 @@ const PORT       = process.env.PORT || 3000;
 let connectedUsers = [];
 let messageHistory = [];
 let zelloWs        = null;
+let currentTalker  = null;
 let sseClients     = new Set();  // clientes de eventos
 let wsClients      = new Set();  // clientes de audio WebSocket
 
@@ -75,19 +76,21 @@ function connectToZello() {
     console.log("Zello →", msg);
 
     if (msg.command === "on_channel_status") {
-      broadcast({ type: "status", channel: msg.channel, online: msg.online });
+      broadcast({ type: "status", channel: msg.channel, online: msg.status === "online" });
     }
     if (msg.command === "on_online_users") {
       connectedUsers = msg.online_users || [];
       broadcast({ type: "users", users: connectedUsers });
     }
     if (msg.command === "on_stream_start") {
+      currentTalker = msg.from;
       broadcast({ type: "talking", user: msg.from, active: true });
       console.log("🎙️ Transmitiendo:", msg.from);
     }
     if (msg.command === "on_stream_stop") {
-      broadcast({ type: "talking", user: msg.from, active: false });
-      console.log("⏹️ Paró:", msg.from);
+      broadcast({ type: "talking", user: currentTalker || msg.from, active: false });
+      console.log("⏹️ Paró:", currentTalker || msg.from);
+      currentTalker = null;
     }
     if (msg.command === "on_text_message") {
       const entry = { user: msg.from, text: msg.text, ts: Date.now() };
