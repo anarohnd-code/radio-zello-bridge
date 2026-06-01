@@ -58,19 +58,20 @@ function connectToZello() {
   // ── Mensajes de texto (JSON) ──────────────────────────────────────────────
   zelloWs.on("message", (raw, isBinary) => {
 
-    // Paquete de AUDIO — binario
-    if (isBinary || Buffer.isBuffer(raw)) {
-      // Los primeros 9 bytes son cabecera de Zello — el resto es Opus puro
-      const audioData = raw.slice(9);
-      if (audioData.length > 0) {
-        broadcastAudio(audioData);
+    // Intentar parsear como JSON primero
+    let msg;
+    try {
+      msg = JSON.parse(raw.toString());
+    } catch (_) {
+      // No es JSON — es paquete de AUDIO binario
+      if (Buffer.isBuffer(raw) && raw.length > 9) {
+        const audioData = raw.slice(9);
+        if (audioData.length > 0) broadcastAudio(audioData);
       }
       return;
     }
 
     // Mensaje de control — JSON
-    let msg;
-    try { msg = JSON.parse(raw); } catch (_) { return; }
     console.log("Zello →", msg);
 
     if (msg.command === "on_channel_status") {
