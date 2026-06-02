@@ -32,18 +32,20 @@ function broadcast(data) {
 function broadcastAudio(opusBuffer) {
   if (!opusDecoder || wsClients.size === 0) return;
   try {
-    // Decodificar Opus → PCM Int16
-    const pcm = opusDecoder.decode(opusBuffer);
-    if (!pcm || pcm.length === 0) return;
-    console.log("PCM decodificado — muestras:", pcm.length, "primeros valores:", pcm[0], pcm[1], pcm[2]);
+    // Decodificar Opus → PCM
+    const decoded = opusDecoder.decode(opusBuffer);
+    if (!decoded || decoded.length === 0) return;
 
-    // Convertir Int16Array a Float32Array para Web Audio API
+    // opusscript devuelve Buffer — lo leemos como Int16Array
+    const pcm = new Int16Array(decoded.buffer, decoded.byteOffset, decoded.byteLength / 2);
+    console.log("PCM Int16 — muestras:", pcm.length, "valores:", pcm[0], pcm[1], pcm[2]);
+
+    // Convertir Int16 a Float32 para Web Audio API
     const float32 = new Float32Array(pcm.length);
     for (let i = 0; i < pcm.length; i++) {
       float32[i] = pcm[i] / 32768.0;
     }
 
-    // Enviar como buffer binario Float32 a todos los clientes
     const outBuffer = Buffer.from(float32.buffer);
     for (const ws of wsClients) {
       try {
