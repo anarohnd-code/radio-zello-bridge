@@ -18,8 +18,9 @@ let connectedUsers = [];
 let messageHistory = [];
 let zelloWs        = null;
 let currentTalker  = null;
-let sseClients     = new Set();  // clientes de eventos
-let wsClients      = new Set();  // clientes de audio WebSocket
+let sseClients     = new Set();  // clientes de eventos de Blogger
+let wsClients      = new Set();  // clientes de audio WebSocket de Blogger
+let kickedByServer = false;      // ¡PROTECCIÓN CONTRA EL BUCLE MORTAL DE RENDER!
 
 // ── Broadcast SSE ─────────────────────────────────────────────────────────────
 function broadcast(data) {
@@ -51,6 +52,7 @@ function connectToZello() {
 
   zelloWs.on("open", () => {
     console.log("¡Conexión con Zello Establecida! Enviando credenciales...");
+    kickedByServer = false; // Reiniciamos la bandera al conectar con éxito
     zelloWs.send(JSON.stringify({
       command:    "logon",
       seq:        1,
@@ -126,12 +128,18 @@ function connectToZello() {
     if (msg.error) {
       console.error("ALERTA Zello:", msg.error);
       if (msg.error === "kicked") {
-        console.warn("Zello solicitó desconexión del bot.");
+        console.warn("Zello solicitó desconexión del bot por doble sesión.");
+        kickedByServer = true; // Marcamos que fuimos expulsados legítimamente
       }
     }
   });
 
   zelloWs.on("close", (code, reason) => {
+    if (kickedByServer) {
+      console.warn(`Conexión cerrada por expulsión (kicked). No se reconectará automáticamente para no tumbar la nueva instancia activa.`);
+      broadcast({ type: "disconnected" });
+      return; // ¡AQUÍ ROMPEMOS EL BUCLE INFERNAL!
+    }
     console.warn(`Conexión con Zello cerrada (${code}). Reintentando en 5 segundos...`);
     broadcast({ type: "disconnected" });
     setTimeout(connectToZello, 5000);
@@ -171,7 +179,7 @@ try {
   console.error("❌ Error en decodificador:", e.message);
 }
 
-// ── Servidor de Distribución Web (Blogger se conecta aquí de forma segura) ───
+// ── Servidor de Distribución Web (Blogger se conecta aquí) ───────────────────
 const server = require("http").createServer(app);
 const wss = new WebSocket.Server({ server, path: "/audio" });
 
@@ -184,6 +192,5 @@ wss.on("connection", (ws) => {
 
 server.listen(PORT, () => {
   console.log(`Servidor activo en puerto ${PORT}`);
-  // CONECTAR A ZELLO AL ARRANCAR EL SERVIDOR, SOLO UNA VEZ:
-  connectToZello();
+  connectToZello(); // Se conecta una sola vez al arrancar de forma limpia
 });
