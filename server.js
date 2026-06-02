@@ -52,7 +52,6 @@ function connectToZello() {
     console.log("¡Conexión establecida! Autenticando cuenta bot...");
     kickedByServer = false;
     
-    // 1. Iniciar sesión
     zelloWs.send(JSON.stringify({
       command:    "logon",
       seq:        1,
@@ -65,10 +64,9 @@ function connectToZello() {
 
   zelloWs.on("message", (raw, isBinary) => {
     
-    // 1. PROCESAMIENTO DE AUDIO BINARIO DE ZELLO (CORREGIDO A 9 BYTES)
+    // 1. PROCESAMIENTO DE AUDIO BINARIO (CON FILTRO SUAVIZADOR ANTI-CHASQUIDOS)
     if (isBinary || (Buffer.isBuffer(raw) && raw.length > 0 && raw[0] === 1)) {
       if (raw.length > 9) {
-        // Cortamos en 9: [1 byte Tipo] + [4 bytes Stream ID] + [4 bytes Packet ID]
         const audioData = raw.slice(9); 
         
         if (audioData.length > 0 && opusDecoder) {
@@ -76,8 +74,10 @@ function connectToZello() {
             const decoded = opusDecoder.decode(audioData);
             if (!decoded || decoded.length === 0) return;
 
+            // Convertimos a PCM de 16 bits
             const pcm = new Int16Array(decoded.buffer, decoded.byteOffset, decoded.length / 2);
 
+            // Validar volumen mínimo (puerta de ruido para evitar estática de estallido)
             let maxVal = 0;
             for (let i = 0; i < pcm.length; i++) {
               const abs = Math.abs(pcm[i]);
@@ -85,21 +85,37 @@ function connectToZello() {
             }
             if (maxVal < 40) return; 
 
+            // Convertimos a Float32 de forma suave
             const float32 = new Float32Array(pcm.length);
+            
+            // FILTRO DE SUAVIZADO: Aplicamos una rampa matemática leve al inicio 
+            // y al final de cada paquete para eliminar el "tuck tuck tuck" digital
+            const fadeLength = Math.min(40, pcm.length / 2); 
             for (let i = 0; i < pcm.length; i++) {
-              float32[i] = pcm[i] / 32768.0;
+              let sample = pcm[i] / 32768.0;
+              
+              // Suavizado al inicio del paquete
+              if (i < fadeLength) {
+                sample *= (i / fadeLength);
+              }
+              // Suavizado al final del paquete
+              else if (i > pcm.length - fadeLength) {
+                sample *= ((pcm.length - i) / fadeLength);
+              }
+              
+              float32[i] = sample;
             }
 
             broadcastAudio(float32);
           } catch (decErr) {
-            // Ignoramos errores de paquetes sueltos
+            // Ignorar pérdidas menores de paquetes
           }
         }
       }
-      return; // Si era audio, terminamos aquí para no romper el JSON
+      return; 
     }
 
-    // 2. PROCESAMIENTO DE MENSAJES DE TEXTO Y ESTADO (JSON)
+    // 2. PROCESAMIENTO DE MENSAJES JSON
     let msg;
     try {
       msg = JSON.parse(raw.toString());
@@ -107,7 +123,6 @@ function connectToZello() {
       return;
     }
 
-    // RESPUESTA AL LOGON: COMANDO CRÍTICO DE ENTRADA AL CANAL
     if (msg.command === "on_logon" && msg.refresh_token) {
       console.log("✅ Bot autenticado. Registrando escucha activa en el canal...");
       zelloWs.send(JSON.stringify({ command: "listen", seq: 2, channel: CHANNEL }));
