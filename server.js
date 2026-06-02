@@ -32,8 +32,9 @@ function broadcast(data) {
 function broadcastAudio(opusBuffer) {
   if (!opusDecoder || wsClients.size === 0) return;
   try {
-    // Decodificar Opus → PCM Int16 con frame size correcto
-    const pcm = opusDecoder.decode(opusBuffer, FRAME_SIZE);
+    // Decodificar Opus → PCM Int16
+    // opusscript detecta automáticamente el frame size del paquete
+    const pcm = opusDecoder.decode(opusBuffer);
     if (!pcm || pcm.length === 0) return;
 
     // Convertir Int16Array a Float32Array para Web Audio API
@@ -82,9 +83,9 @@ function connectToZello() {
       msg = JSON.parse(raw.toString());
     } catch (_) {
       // No es JSON — es paquete de AUDIO binario
-      if (Buffer.isBuffer(raw) && raw.length > 9) {
-        const audioData = raw.slice(9);
-        console.log("Audio paquete — total:", raw.length, "sin header:", audioData.length);
+      if (Buffer.isBuffer(raw) && raw.length > 1) {
+        // Zello: 1 byte tipo + 4 bytes stream_id = 5 bytes header
+        const audioData = raw.slice(5);
         if (audioData.length > 0) broadcastAudio(audioData);
       }
       return;
@@ -172,6 +173,7 @@ try {
 }
 
 // Frame size para packet_duration=120ms a 16000Hz = 1920 muestras
+// 16000 samples/sec * 0.120 sec = 1920
 const FRAME_SIZE = 1920;
 
 // ── Servidor HTTP + WebSocket para audio ─────────────────────────────────────
