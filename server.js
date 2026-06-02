@@ -84,6 +84,7 @@ function connectToZello() {
       // No es JSON — es paquete de AUDIO binario
       if (Buffer.isBuffer(raw) && raw.length > 9) {
         const audioData = raw.slice(9);
+        console.log("Audio paquete — total:", raw.length, "sin header:", audioData.length);
         if (audioData.length > 0) broadcastAudio(audioData);
       }
       return;
