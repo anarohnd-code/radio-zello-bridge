@@ -33,9 +33,9 @@ function broadcastAudio(opusBuffer) {
   if (!opusDecoder || wsClients.size === 0) return;
   try {
     // Decodificar Opus → PCM Int16
-    // opusscript detecta automáticamente el frame size del paquete
     const pcm = opusDecoder.decode(opusBuffer);
     if (!pcm || pcm.length === 0) return;
+    console.log("PCM decodificado — muestras:", pcm.length, "primeros valores:", pcm[0], pcm[1], pcm[2]);
 
     // Convertir Int16Array a Float32Array para Web Audio API
     const float32 = new Float32Array(pcm.length);
