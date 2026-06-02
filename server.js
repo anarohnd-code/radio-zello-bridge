@@ -38,7 +38,10 @@ function broadcastAudio(opusBuffer) {
 
     // opusscript devuelve Buffer — lo leemos como Int16Array
     const pcm = new Int16Array(decoded.buffer, decoded.byteOffset, decoded.byteLength / 2);
-    console.log("PCM Int16 — muestras:", pcm.length, "valores:", pcm[0], pcm[1], pcm[2]);
+
+    // Filtrar paquetes silenciosos (todos los valores cercanos a cero)
+    const maxVal = Math.max(...Array.from(pcm).map(v => Math.abs(v)));
+    if (maxVal < 10) return; // paquete de silencio — ignorar
 
     // Convertir Int16 a Float32 para Web Audio API
     const float32 = new Float32Array(pcm.length);
