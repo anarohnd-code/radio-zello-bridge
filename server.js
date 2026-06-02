@@ -3,14 +3,15 @@ const cors      = require("cors");
 const WebSocket = require("ws");
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
 
 const AUTH_TOKEN = process.env.ZELLO_AUTH_TOKEN;
-const USERNAME   = process.env.ZELLO_USERNAME;
-const PASSWORD   = process.env.ZELLO_PASSWORD;
-const CHANNEL    = process.env.ZELLO_CHANNEL || "Cedec Ministerios";
-const PORT       = process.env.PORT || 3000;
+const USERNAME    = process.env.ZELLO_USERNAME;
+const PASSWORD    = process.env.ZELLO_PASSWORD;
+const CHANNEL     = process.env.ZELLO_CHANNEL || "Cedec Ministerios";
+const PORT        = process.env.PORT || 3000;
 
 // ── Estado global ─────────────────────────────────────────────────────────────
 let connectedUsers = [];
@@ -32,18 +33,23 @@ function broadcast(data) {
 function broadcastAudio(opusBuffer) {
   if (!opusDecoder || wsClients.size === 0) return;
   try {
-    // Decodificar Opus → PCM
+    // Decodificar Opus → PCM (Devuelve un Buffer con bytes crudos de 16-bit PCM)
     const decoded = opusDecoder.decode(opusBuffer);
     if (!decoded || decoded.length === 0) return;
 
-    // opusscript devuelve Buffer — lo leemos como Int16Array
-    const pcm = new Int16Array(decoded.buffer, decoded.byteOffset, decoded.byteLength / 2);
+    // LEER CORRECTAMENTE EL BUFFER DE OPUSSCRIPT:
+    // Como cada muestra PCM de 16 bits ocupa 2 bytes, creamos un Int16Array leyendo el buffer directamente
+    const pcm = new Int16Array(decoded.buffer, decoded.byteOffset, decoded.length / 2);
 
     // Filtrar paquetes silenciosos (todos los valores cercanos a cero)
-    const maxVal = Math.max(...Array.from(pcm).map(v => Math.abs(v)));
-    if (maxVal < 10) return; // paquete de silencio — ignorar
+    let maxVal = 0;
+    for (let i = 0; i < pcm.length; i++) {
+      const abs = Math.abs(pcm[i]);
+      if (abs > maxVal) maxVal = abs;
+    }
+    if (maxVal < 30) return; // paquete de silencio — ignorar
 
-    // Convertir Int16 a Float32 para Web Audio API
+    // Convertir Int16 (-32768 a 32767) a Float32 (-1.0 a 1.0) para Web Audio API
     const float32 = new Float32Array(pcm.length);
     for (let i = 0; i < pcm.length; i++) {
       float32[i] = pcm[i] / 32768.0;
@@ -79,16 +85,15 @@ function connectToZello() {
     }));
   });
 
-  // ── Mensajes de texto (JSON) ──────────────────────────────────────────────
+  // ── Mensajes de texto (JSON) y Audio (Binario) ──────────────────────────────
   zelloWs.on("message", (raw, isBinary) => {
-
     // Intentar parsear como JSON primero
     let msg;
     try {
       msg = JSON.parse(raw.toString());
     } catch (_) {
       // No es JSON — es paquete de AUDIO binario
-      if (Buffer.isBuffer(raw) && raw.length > 1) {
+      if (Buffer.isBuffer(raw) && raw.length > 5) {
         // Zello: 1 byte tipo + 4 bytes stream_id = 5 bytes header
         const audioData = raw.slice(5);
         if (audioData.length > 0) broadcastAudio(audioData);
@@ -140,11 +145,8 @@ function connectToZello() {
 }
 
 // ── Rutas HTTP ────────────────────────────────────────────────────────────────
-
-// Health check
 app.get("/", (_, res) => res.json({ status: "ok", channel: CHANNEL }));
 
-// SSE — eventos en tiempo real
 app.get("/events", (req, res) => {
   res.setHeader("Content-Type",  "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -177,13 +179,8 @@ try {
   console.error("❌ Error iniciando Opus:", e.message);
 }
 
-// Frame size para packet_duration=120ms a 16000Hz = 1920 muestras
-// 16000 samples/sec * 0.120 sec = 1920
-const FRAME_SIZE = 1920;
-
 // ── Servidor HTTP + WebSocket para audio ─────────────────────────────────────
 const server = require("http").createServer(app);
-
 const wss = new WebSocket.Server({ server, path: "/audio" });
 
 wss.on("connection", (ws) => {
