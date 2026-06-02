@@ -29,52 +29,28 @@ function broadcast(data) {
   }
 }
 
-// ── Broadcast audio — decodifica Opus a PCM y envía a clientes ───────────────
-function broadcastAudio(opusBuffer) {
-  if (!opusDecoder || wsClients.size === 0) return;
-  try {
-    // Decodificar Opus → PCM (Devuelve un Buffer con bytes crudos de 16-bit PCM)
-    const decoded = opusDecoder.decode(opusBuffer);
-    if (!decoded || decoded.length === 0) return;
-
-    // LEER CORRECTAMENTE EL BUFFER DE OPUSSCRIPT:
-    // Como cada muestra PCM de 16 bits ocupa 2 bytes, creamos un Int16Array leyendo el buffer directamente
-    const pcm = new Int16Array(decoded.buffer, decoded.byteOffset, decoded.length / 2);
-
-    // Filtrar paquetes silenciosos (todos los valores cercanos a cero)
-    let maxVal = 0;
-    for (let i = 0; i < pcm.length; i++) {
-      const abs = Math.abs(pcm[i]);
-      if (abs > maxVal) maxVal = abs;
-    }
-    if (maxVal < 30) return; // paquete de silencio — ignorar
-
-    // Convertir Int16 (-32768 a 32767) a Float32 (-1.0 a 1.0) para Web Audio API
-    const float32 = new Float32Array(pcm.length);
-    for (let i = 0; i < pcm.length; i++) {
-      float32[i] = pcm[i] / 32768.0;
-    }
-
-    const outBuffer = Buffer.from(float32.buffer);
-    for (const ws of wsClients) {
-      try {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(outBuffer);
-        }
-      } catch (_) {}
-    }
-  } catch(e) {
-    console.error("Error decodificando Opus:", e.message);
+// ── Broadcast audio — Envía Float32 PCM purificado a los oyentes de la web ────
+function broadcastAudio(float32Array) {
+  if (wsClients.size === 0) return;
+  const outBuffer = Buffer.from(float32Array.buffer);
+  for (const ws of wsClients) {
+    try {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(outBuffer);
+      }
+    } catch (_) {}
   }
 }
 
-// ── Conexión a Zello ──────────────────────────────────────────────────────────
+// ── Conexión ÚNICA y Permanente a Zello ───────────────────────────────────────
 function connectToZello() {
-  console.log("Conectando a Zello...");
+  if (zelloWs && zelloWs.readyState === WebSocket.OPEN) return;
+  
+  console.log("Conectando a Zello de forma centralizada...");
   zelloWs = new WebSocket("wss://zello.io/ws");
 
   zelloWs.on("open", () => {
-    console.log("Conexión abierta. Enviando logon...");
+    console.log("¡Conexión con Zello Establecida! Enviando credenciales...");
     zelloWs.send(JSON.stringify({
       command:    "logon",
       seq:        1,
@@ -85,25 +61,45 @@ function connectToZello() {
     }));
   });
 
-  // ── Mensajes de texto (JSON) y Audio (Binario) ──────────────────────────────
   zelloWs.on("message", (raw, isBinary) => {
-    // Intentar parsear como JSON primero
     let msg;
     try {
       msg = JSON.parse(raw.toString());
     } catch (_) {
-      // No es JSON — es paquete de AUDIO binario
+      // Es paquete de AUDIO binario proveniente de Zello
       if (Buffer.isBuffer(raw) && raw.length > 5) {
-        // Zello: 1 byte tipo + 4 bytes stream_id = 5 bytes header
         const audioData = raw.slice(5);
-        if (audioData.length > 0) broadcastAudio(audioData);
+        if (audioData.length > 0 && opusDecoder) {
+          try {
+            const decoded = opusDecoder.decode(audioData);
+            if (!decoded || decoded.length === 0) return;
+
+            const pcm = new Int16Array(decoded.buffer, decoded.byteOffset, decoded.length / 2);
+
+            // Filtro de silencio absoluto
+            let maxVal = 0;
+            for (let i = 0; i < pcm.length; i++) {
+              const abs = Math.abs(pcm[i]);
+              if (abs > maxVal) maxVal = abs;
+            }
+            if (maxVal < 40) return; 
+
+            // Conversión limpia a Float32 para los navegadores
+            const float32 = new Float32Array(pcm.length);
+            for (let i = 0; i < pcm.length; i++) {
+              float32[i] = pcm[i] / 32768.0;
+            }
+
+            broadcastAudio(float32);
+          } catch (decErr) {
+            console.error("Error al decodificar frame Opus:", decErr.message);
+          }
+        }
       }
       return;
     }
 
-    // Mensaje de control — JSON
-    console.log("Zello →", msg);
-
+    // Procesar comandos de estado de Zello
     if (msg.command === "on_channel_status") {
       broadcast({ type: "status", channel: msg.channel, online: msg.status === "online" });
     }
@@ -114,11 +110,11 @@ function connectToZello() {
     if (msg.command === "on_stream_start") {
       currentTalker = msg.from;
       broadcast({ type: "talking", user: msg.from, active: true });
-      console.log("🎙️ Transmitiendo:", msg.from);
+      console.log("🎙️ Transmitiendo en vivo:", msg.from);
     }
     if (msg.command === "on_stream_stop") {
       broadcast({ type: "talking", user: currentTalker || msg.from, active: false });
-      console.log("⏹️ Paró:", currentTalker || msg.from);
+      console.log("⏹️ Transmisión pausada");
       currentTalker = null;
     }
     if (msg.command === "on_text_message") {
@@ -128,24 +124,26 @@ function connectToZello() {
       broadcast({ type: "text", ...entry });
     }
     if (msg.error) {
-      console.error("ERROR Zello:", msg.error);
-      broadcast({ type: "error", error: msg.error });
+      console.error("ALERTA Zello:", msg.error);
+      if (msg.error === "kicked") {
+        console.warn("Zello solicitó desconexión del bot.");
+      }
     }
   });
 
   zelloWs.on("close", (code, reason) => {
-    console.warn(`Zello cerró (${code}): ${reason}. Reconectando en 5s...`);
+    console.warn(`Conexión con Zello cerrada (${code}). Reintentando en 5 segundos...`);
     broadcast({ type: "disconnected" });
     setTimeout(connectToZello, 5000);
   });
 
   zelloWs.on("error", (err) => {
-    console.error("Error WebSocket Zello:", err.message);
+    console.error("Error en WebSocket de Zello:", err.message);
   });
 }
 
-// ── Rutas HTTP ────────────────────────────────────────────────────────────────
-app.get("/", (_, res) => res.json({ status: "ok", channel: CHANNEL }));
+// ── Rutas de servidor ────────────────────────────────────────────────────────
+app.get("/", (_, res) => res.json({ status: "online", channel: CHANNEL, botConnected: !!zelloWs }));
 
 app.get("/events", (req, res) => {
   res.setHeader("Content-Type",  "text/event-stream");
@@ -163,36 +161,29 @@ app.get("/events", (req, res) => {
   req.on("close", () => sseClients.delete(res));
 });
 
-app.get("/history", (_, res) => res.json(messageHistory));
-app.get("/users",   (_, res) => res.json(connectedUsers));
-
-// Decodificador Opus en el servidor usando opusscript
+// Decodificador de Audio
 const OpusScript = require("opusscript");
-const SAMPLE_RATE = 16000;
-const CHANNELS    = 1;
 let opusDecoder   = null;
-
 try {
-  opusDecoder = new OpusScript(SAMPLE_RATE, CHANNELS, OpusScript.Application.VOIP);
-  console.log("✅ Decodificador Opus listo");
+  opusDecoder = new OpusScript(16000, 1, OpusScript.Application.VOIP);
+  console.log("✅ Decodificador de audio Opus inicializado");
 } catch(e) {
-  console.error("❌ Error iniciando Opus:", e.message);
+  console.error("❌ Error en decodificador:", e.message);
 }
 
-// ── Servidor HTTP + WebSocket para audio ─────────────────────────────────────
+// ── Servidor de Distribución Web (Blogger se conecta aquí de forma segura) ───
 const server = require("http").createServer(app);
 const wss = new WebSocket.Server({ server, path: "/audio" });
 
 wss.on("connection", (ws) => {
-  console.log("🔊 Cliente de audio conectado");
   wsClients.add(ws);
   ws.on("close", () => {
     wsClients.delete(ws);
-    console.log("🔇 Cliente de audio desconectado");
   });
 });
 
 server.listen(PORT, () => {
-  console.log(`Servidor escuchando en puerto ${PORT}`);
+  console.log(`Servidor activo en puerto ${PORT}`);
+  // CONECTAR A ZELLO AL ARRANCAR EL SERVIDOR, SOLO UNA VEZ:
   connectToZello();
 });
