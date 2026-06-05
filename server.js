@@ -74,10 +74,8 @@ function connectToZello() {
             const decoded = opusDecoder.decode(audioData);
             if (!decoded || decoded.length === 0) return;
 
-            // Convertimos a PCM de 16 bits
             const pcm = new Int16Array(decoded.buffer, decoded.byteOffset, decoded.length / 2);
 
-            // Validar volumen mínimo (puerta de ruido para evitar estática de estallido)
             let maxVal = 0;
             for (let i = 0; i < pcm.length; i++) {
               const abs = Math.abs(pcm[i]);
@@ -85,24 +83,15 @@ function connectToZello() {
             }
             if (maxVal < 40) return; 
 
-            // Convertimos a Float32 de forma suave
             const float32 = new Float32Array(pcm.length);
-            
-            // FILTRO DE SUAVIZADO: Aplicamos una rampa matemática leve al inicio 
-            // y al final de cada paquete para eliminar el "tuck tuck tuck" digital
             const fadeLength = Math.min(40, pcm.length / 2); 
             for (let i = 0; i < pcm.length; i++) {
               let sample = pcm[i] / 32768.0;
-              
-              // Suavizado al inicio del paquete
               if (i < fadeLength) {
                 sample *= (i / fadeLength);
-              }
-              // Suavizado al final del paquete
-              else if (i > pcm.length - fadeLength) {
+              } else if (i > pcm.length - fadeLength) {
                 sample *= ((pcm.length - i) / fadeLength);
               }
-              
               float32[i] = sample;
             }
 
@@ -193,6 +182,31 @@ app.get("/events", (req, res) => {
 
   sseClients.add(res);
   req.on("close", () => sseClients.delete(res));
+});
+
+app.get("/history", (_, res) => res.json(messageHistory));
+app.get("/users",   (_, res) => res.json(connectedUsers));
+
+// ── Enviar mensaje de texto al canal desde la web ─────────────────────────────
+app.post("/send-message", (req, res) => {
+  const { text, user } = req.body;
+  if (!text || !zelloWs || zelloWs.readyState !== WebSocket.OPEN) {
+    return res.status(400).json({ error: "No conectado o mensaje vacío" });
+  }
+  try {
+    zelloWs.send(JSON.stringify({
+      command: "send_text_message",
+      seq: Date.now(),
+      channel: CHANNEL,
+      text: text
+    }));
+    const entry = { user: user || "Oyente Web", text, ts: Date.now() };
+    messageHistory.push(entry);
+    if (messageHistory.length > 50) messageHistory.shift();
+    res.json({ ok: true });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 const OpusScript = require("opusscript");
