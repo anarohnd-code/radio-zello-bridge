@@ -29,6 +29,10 @@ function broadcast(data) {
   }
 }
 
+function broadcastListenerCount() {
+  broadcast({ type: "listeners", count: sseClients.size });
+}
+
 function broadcastAudio(float32Array) {
   if (wsClients.size === 0) return;
   const outBuffer = Buffer.from(float32Array.buffer);
@@ -182,7 +186,11 @@ app.get("/events", (req, res) => {
   }) + "\n\n");
 
   sseClients.add(res);
-  req.on("close", () => sseClients.delete(res));
+  broadcastListenerCount();
+  req.on("close", () => {
+    sseClients.delete(res);
+    broadcastListenerCount();
+  });
 });
 
 app.get("/history", (_, res) => res.json(messageHistory));
