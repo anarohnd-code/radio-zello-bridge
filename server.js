@@ -125,13 +125,14 @@ function connectToZello() {
       broadcast({ type: "users", users: connectedUsers });
     }
     if (msg.command === "on_stream_start") {
-      currentTalker = msg.from;
-      broadcast({ type: "talking", user: msg.from, active: true });
-      console.log("🎙️ Transmitiendo en vivo:", msg.from);
+      currentTalker = msg.from || msg.contactName || "Transmitiendo...";
+      broadcast({ type: "talking", user: currentTalker, active: true });
+      console.log("🎙️ Transmitiendo en vivo:", currentTalker);
     }
     if (msg.command === "on_stream_stop") {
-      broadcast({ type: "talking", user: currentTalker || msg.from, active: false });
-      console.log("⏹️ Transmisión pausada");
+      var talker = currentTalker || "Canal";
+      broadcast({ type: "talking", user: talker, active: false });
+      console.log("⏹️ Paró:", talker);
       currentTalker = null;
     }
     if (msg.command === "on_text_message") {
@@ -229,4 +230,18 @@ wss.on("connection", (ws) => {
 server.listen(PORT, () => {
   console.log(`Servidor activo en puerto ${PORT}`);
   connectToZello();
+  
+  // ── Keep-alive: evita que Render duerma el servidor ──────────────────────
+  const https = require("https");
+  const RENDER_URL = process.env.RENDER_EXTERNAL_URL;
+  if (RENDER_URL) {
+    setInterval(() => {
+      https.get(RENDER_URL + "/", (res) => {
+        console.log("🏓 Keep-alive ping:", res.statusCode);
+      }).on("error", (e) => {
+        console.warn("Keep-alive error:", e.message);
+      });
+    }, 10 * 60 * 1000); // cada 10 minutos
+    console.log("✅ Keep-alive activo");
+  }
 });
