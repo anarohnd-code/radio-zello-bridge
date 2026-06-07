@@ -16,39 +16,53 @@ const PASSWORD      = process.env.ZELLO_PASSWORD;
 const CHANNEL       = process.env.ZELLO_CHANNEL || "Cedec Ministerios";
 const PORT          = process.env.PORT || 3000;
 
-// ── Generador de token JWT ─────────────────────────────────────────────────
+// ── Generador de token JWT para Zello ────────────────────────────────────────
+function base64urlEncode(str) {
+  return Buffer.from(str)
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
+}
+
 function generateToken() {
-  // Si tenemos Issuer y Private Key, generamos token de producción
   if (ISSUER && PRIVATE_KEY) {
     try {
-      const header  = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
-      const payload = Buffer.from(JSON.stringify({
+      // Header y payload exactamente como Zello los espera
+      const header  = base64urlEncode(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+      const payload = base64urlEncode(JSON.stringify({
         iss: ISSUER,
-        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24) // 24 horas
-      })).toString("base64url");
+        exp: Math.floor(Date.now() / 1000) + 3600 // 1 hora
+      }));
 
-      const data      = header + "." + payload;
-      const sign      = crypto.createSign("RSA-SHA256");
-      sign.update(data);
+      const data = header + "." + payload;
 
-      // Formatear la clave privada correctamente
-      let privKey = PRIVATE_KEY;
+      // Formatear clave privada PEM
+      let privKey = PRIVATE_KEY.trim();
       if (!privKey.includes("-----BEGIN")) {
+        // Limpiar espacios y saltos de línea extras
+        const clean = privKey.replace(/\s+/g, "");
         privKey = "-----BEGIN RSA PRIVATE KEY-----\n" +
-          privKey.match(/.{1,64}/g).join("\n") +
+          clean.match(/.{1,64}/g).join("\n") +
           "\n-----END RSA PRIVATE KEY-----";
       }
 
-      const signature = sign.sign(privKey, "base64url");
-      console.log("✅ Token de producción generado con Issuer + Private Key");
-      return data + "." + signature;
+      const sign = crypto.createSign("RSA-SHA256");
+      sign.update(data);
+      const sig = sign.sign(privKey, "base64")
+        .replace(/\+/g, "-")
+        .replace(/\//g, "_")
+        .replace(/=/g, "");
+
+      const token = data + "." + sig;
+      console.log("✅ Token de producción generado correctamente");
+      return token;
     } catch(e) {
-      console.error("❌ Error generando token de producción:", e.message);
-      console.log("⚠️ Usando token de desarrollo como fallback...");
+      console.error("❌ Error generando token:", e.message);
+      console.log("⚠️ Fallback a token de desarrollo...");
       return AUTH_TOKEN_DEV;
     }
   }
-  // Fallback al token de desarrollo
   console.log("⚠️ Usando token de desarrollo (30 días)");
   return AUTH_TOKEN_DEV;
 }
