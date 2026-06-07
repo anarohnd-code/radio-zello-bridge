@@ -2,16 +2,56 @@ const express   = require("express");
 const cors      = require("cors");
 const WebSocket = require("ws");
 
-const app = express();
+const app    = express();
+const crypto = require("crypto");
 
 app.use(cors());
 app.use(express.json());
 
-const AUTH_TOKEN = process.env.ZELLO_AUTH_TOKEN;
-const USERNAME    = process.env.ZELLO_USERNAME;
-const PASSWORD    = process.env.ZELLO_PASSWORD;
-const CHANNEL     = process.env.ZELLO_CHANNEL || "Cedec Ministerios";
-const PORT        = process.env.PORT || 3000;
+const AUTH_TOKEN_DEV = process.env.ZELLO_AUTH_TOKEN;
+const ISSUER        = process.env.ZELLO_ISSUER;
+const PRIVATE_KEY   = process.env.ZELLO_PRIVATE_KEY;
+const USERNAME      = process.env.ZELLO_USERNAME;
+const PASSWORD      = process.env.ZELLO_PASSWORD;
+const CHANNEL       = process.env.ZELLO_CHANNEL || "Cedec Ministerios";
+const PORT          = process.env.PORT || 3000;
+
+// ── Generador de token JWT ─────────────────────────────────────────────────
+function generateToken() {
+  // Si tenemos Issuer y Private Key, generamos token de producción
+  if (ISSUER && PRIVATE_KEY) {
+    try {
+      const header  = Buffer.from(JSON.stringify({ alg: "RS256", typ: "JWT" })).toString("base64url");
+      const payload = Buffer.from(JSON.stringify({
+        iss: ISSUER,
+        exp: Math.floor(Date.now() / 1000) + (60 * 60 * 24) // 24 horas
+      })).toString("base64url");
+
+      const data      = header + "." + payload;
+      const sign      = crypto.createSign("RSA-SHA256");
+      sign.update(data);
+
+      // Formatear la clave privada correctamente
+      let privKey = PRIVATE_KEY;
+      if (!privKey.includes("-----BEGIN")) {
+        privKey = "-----BEGIN RSA PRIVATE KEY-----\n" +
+          privKey.match(/.{1,64}/g).join("\n") +
+          "\n-----END RSA PRIVATE KEY-----";
+      }
+
+      const signature = sign.sign(privKey, "base64url");
+      console.log("✅ Token de producción generado con Issuer + Private Key");
+      return data + "." + signature;
+    } catch(e) {
+      console.error("❌ Error generando token de producción:", e.message);
+      console.log("⚠️ Usando token de desarrollo como fallback...");
+      return AUTH_TOKEN_DEV;
+    }
+  }
+  // Fallback al token de desarrollo
+  console.log("⚠️ Usando token de desarrollo (30 días)");
+  return AUTH_TOKEN_DEV;
+}
 
 // ── Estado global ─────────────────────────────────────────────────────────────
 let connectedUsers = [];
@@ -56,10 +96,11 @@ function connectToZello() {
     console.log("¡Conexión establecida! Autenticando cuenta bot...");
     kickedByServer = false;
     
+    const token = generateToken();
     zelloWs.send(JSON.stringify({
       command:    "logon",
       seq:        1,
-      auth_token: AUTH_TOKEN,
+      auth_token: token,
       username:   USERNAME,
       password:   PASSWORD,
       channel:    CHANNEL
