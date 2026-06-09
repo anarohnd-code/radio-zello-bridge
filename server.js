@@ -37,15 +37,27 @@ function generateToken() {
 
       const data = header + "." + payload;
 
-      // Formatear clave privada PEM
+      // Formatear clave privada PEM correctamente para Node.js crypto
       let privKey = PRIVATE_KEY.trim();
-      if (!privKey.includes("-----BEGIN")) {
-        // Limpiar espacios y saltos de línea extras
-        const clean = privKey.replace(/\s+/g, "");
-        privKey = "-----BEGIN RSA PRIVATE KEY-----\n" +
-          clean.match(/.{1,64}/g).join("\n") +
-          "\n-----END RSA PRIVATE KEY-----";
-      }
+      
+      // Paso 1: Reemplazar \n literales por saltos de línea reales
+      privKey = privKey.replace(/\\n/g, "\n");
+      
+      // Paso 2: Extraer solo el contenido base64 sin headers
+      const pemMatch = privKey.match(/-----BEGIN[^-]+-----([\s\S]+?)-----END[^-]+-----/);
+      let keyBody = pemMatch ? pemMatch[1] : privKey;
+      
+      // Paso 3: Limpiar el contenido — quitar espacios y saltos
+      keyBody = keyBody.replace(/\s+/g, "");
+      
+      // Paso 4: Reconstruir con líneas de 64 caracteres (requerido por Node.js)
+      const keyLines = keyBody.match(/.{1,64}/g).join("\n");
+      
+      // Paso 5: Determinar tipo de clave
+      const keyType = privKey.includes("RSA") ? "RSA PRIVATE KEY" : "PRIVATE KEY";
+      privKey = \`-----BEGIN \${keyType}-----\n\${keyLines}\n-----END \${keyType}-----\`;
+      
+      console.log("🔑 Clave formateada correctamente, tipo:", keyType);
 
       const sign = crypto.createSign("RSA-SHA256");
       sign.update(data);
