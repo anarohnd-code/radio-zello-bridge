@@ -55,7 +55,7 @@ function generateToken() {
       
       // Paso 5: Determinar tipo de clave
       const keyType = privKey.includes("RSA") ? "RSA PRIVATE KEY" : "PRIVATE KEY";
-      privKey = \`-----BEGIN \${keyType}-----\n\${keyLines}\n-----END \${keyType}-----\`;
+      privKey = "-----BEGIN " + keyType + "-----\n" + keyLines + "\n-----END " + keyType + "-----";
       
       console.log("🔑 Clave formateada correctamente, tipo:", keyType);
 
